@@ -28,7 +28,7 @@ input,select,button{font:inherit}
 .field input,.field select{width:100%;border:1px solid var(--line);background:#fff;border-radius:12px;padding:12px 10px;outline-color:var(--green);color:var(--ink)}
 .primary{width:100%;border:0;background:var(--green);color:white;font-weight:750;padding:15px;border-radius:14px;font-size:15px}
 .primary:active{transform:scale(.99)}
-.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:15px}
+.balance-card{background:#e8f3ec;border:1px solid #d5e7da;border-radius:20px;padding:17px;margin-bottom:15px}.balance-top{display:flex;justify-content:space-between;align-items:center;gap:10px}.balance-label{font-size:13px;font-weight:700;color:#35694b}.balance-value{font-size:28px;font-weight:850;letter-spacing:-.6px;margin:8px 0 13px;color:#204c35}.balance-edit{display:flex;gap:8px}.balance-edit input{min-width:0;flex:1;width:100%;border:1px solid #c9ddcf;border-radius:12px;padding:12px;background:#fff;color:var(--ink);font-size:16px}.balance-edit button{border:0;border-radius:12px;padding:0 14px;background:var(--green);color:white;font-size:12px;font-weight:750;white-space:nowrap}.balance-note{font-size:11px;color:#547260;line-height:1.45;margin-top:9px}.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:15px}
 .stat{background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:var(--shadow)}
 .stat .label{font-size:12px}.stat .value{font-size:25px;font-weight:800;letter-spacing:-.7px;margin-top:8px}.stat .sub{font-size:11px;color:var(--muted);margin-top:4px}
 .section-head{display:flex;align-items:center;justify-content:space-between;margin:21px 2px 12px}
@@ -52,6 +52,12 @@ h2{font-size:18px;letter-spacing:-.3px;margin:0}.small-action{border:0;backgroun
 <body>
 <div class="app">
 <header><div><div class="eyebrow">Your money, clearly</div><h1>My Expenses</h1></div><div class="date-pill" id="todayPill">TODAY</div></header>
+<section class="balance-card" aria-label="Bank balance">
+  <div class="balance-top"><div class="balance-label">🏦 Current bank balance</div><div class="balance-label">Editable</div></div>
+  <div class="balance-value" id="bankBalanceDisplay">Not set</div>
+  <div class="balance-edit"><input id="bankBalanceInput" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Enter your bank balance" aria-label="Current bank balance"><button id="saveBalanceBtn">Update balance</button></div>
+  <div class="balance-note">When you add an expense, this balance decreases automatically. Deleting an expense adds it back. You can edit the balance whenever your actual bank balance changes.</div>
+</section>
 <section class="card">
   <div class="label">Add an expense</div>
   <div class="amount-row"><span class="rupee">₹</span><input id="amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0" aria-label="Amount spent"></div>
@@ -89,13 +95,13 @@ const CATS=[
  {name:'Entertainment',emoji:'🎬'},{name:'Personal care',emoji:'🧴'},{name:'Travel',emoji:'🧳'},
  {name:'EMI / loan',emoji:'🏦'},{name:'Gifts',emoji:'🎁'},{name:'Other',emoji:'➕'}
 ];
-const KEY='myExpenses_v1';let expenses=[];let selected='Lunch';
+const KEY='myExpenses_v1';const BALANCE_KEY='myExpenses_bankBalance_v1';let expenses=[];let bankBalance=null;let selected='Lunch';
 const $=id=>document.getElementById(id);
 const todayISO=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
 const parseDate=s=>new Date(s+'T00:00:00');
 const fmt=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(n||0);
 const catInfo=name=>CATS.find(c=>c.name===name)||CATS[CATS.length-1];
-function load(){try{expenses=JSON.parse(localStorage.getItem(KEY)||'[]');if(!Array.isArray(expenses))expenses=[]}catch{expenses=[]}}
+function load(){try{expenses=JSON.parse(localStorage.getItem(KEY)||'[]');if(!Array.isArray(expenses))expenses=[]}catch{expenses=[]}try{const saved=localStorage.getItem(BALANCE_KEY);bankBalance=saved===null?null:Number(saved);if(bankBalance!==null&&(!Number.isFinite(bankBalance)||bankBalance<0))bankBalance=null}catch{bankBalance=null}}
 function save(){localStorage.setItem(KEY,JSON.stringify(expenses))}
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
 function init(){
@@ -104,6 +110,8 @@ function init(){
  $('categoryGrid').addEventListener('click',e=>{const b=e.target.closest('[data-cat]');if(!b)return;selected=b.dataset.cat;document.querySelectorAll('.cat').forEach(x=>x.classList.toggle('active',x.dataset.cat===selected))});
  $('historyCategory').innerHTML='<option value="all">All categories</option>'+CATS.map(c=>`<option>${c.name}</option>`).join('');
  $('addBtn').addEventListener('click',addExpense);
+ $('saveBalanceBtn').addEventListener('click',updateBankBalance);
+ $('bankBalanceInput').addEventListener('keydown',e=>{if(e.key==='Enter')updateBankBalance()});
  ['summaryPeriod','historyPeriod','historyCategory'].forEach(id=>$(id).addEventListener('change',render));
  $('categoryPeriodBtn').addEventListener('click',()=>{$('summaryPeriod').focus();$('summaryPeriod').click()});
  $('exportBtn').addEventListener('click',exportCSV);$('backupBtn').addEventListener('click',backup);
@@ -111,10 +119,20 @@ function init(){
  $('amount').addEventListener('keydown',e=>{if(e.key==='Enter')addExpense()});
  render();
 }
+function updateBankBalance(){
+ const raw=$('bankBalanceInput').value;
+ if(raw.trim()===''||!Number.isFinite(Number(raw))||Number(raw)<0){toast('Enter a valid bank balance');$('bankBalanceInput').focus();return}
+ bankBalance=Math.round(Number(raw)*100)/100;localStorage.setItem(BALANCE_KEY,String(bankBalance));renderBalance();toast('Bank balance updated ✓');
+}
+function renderBalance(){
+ $('bankBalanceDisplay').textContent=bankBalance===null?'Not set':fmt(bankBalance);
+ if(document.activeElement!==$('bankBalanceInput'))$('bankBalanceInput').value=bankBalance===null?'':String(bankBalance);
+}
 function addExpense(){
  const amount=Number($('amount').value),date=$('expenseDate').value||todayISO();
  if(!Number.isFinite(amount)||amount<=0){toast('Enter an amount greater than ₹0');$('amount').focus();return}
  expenses.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),amount:Math.round(amount*100)/100,category:selected,description:$('description').value.trim(),date,createdAt:new Date().toISOString()});
+ if(bankBalance!==null){bankBalance=Math.round((bankBalance-amount)*100)/100;localStorage.setItem(BALANCE_KEY,String(bankBalance))}
  expenses.sort((a,b)=>b.date.localeCompare(a.date)||(b.createdAt||'').localeCompare(a.createdAt||''));save();
  $('amount').value='';$('description').value='';$('expenseDate').value=todayISO();render();toast('Expense saved ✓');
 }
@@ -125,6 +143,7 @@ function inPeriod(item,period){
  return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();
 }
 function render(){
+ renderBalance();
  const today=expenses.filter(e=>e.date===todayISO()),now=new Date();
  const month=expenses.filter(e=>{const d=parseDate(e.date);return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth()});
  $('todayTotal').textContent=fmt(today.reduce((s,e)=>s+e.amount,0));$('todayCount').textContent=`${today.length} expense${today.length===1?'':'s'} today`;
@@ -145,7 +164,7 @@ function renderHistory(){
  const list=expenses.filter(e=>inPeriod(e,period)&&(cat==='all'||e.category===cat)).sort((a,b)=>b.date.localeCompare(a.date)||(b.createdAt||'').localeCompare(a.createdAt||''));
  if(!list.length){$('expenseList').innerHTML='<div class="empty">No expenses found for this filter.</div>';return}
  $('expenseList').innerHTML=list.map(e=>{const c=catInfo(e.category);return `<div class="expense"><div class="exp-icon">${c.emoji}</div><div class="exp-main"><div class="exp-title">${esc(e.description||e.category)}</div><div class="exp-meta">${esc(e.category)} · ${parseDate(e.date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div></div><div class="exp-right"><div class="exp-value">${fmt(e.amount)}</div><button class="delete" data-delete="${e.id}">Delete</button></div></div>`}).join('');
- $('expenseList').querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',()=>{if(confirm('Delete this expense?')){expenses=expenses.filter(e=>e.id!==b.dataset.delete);save();render();toast('Expense deleted')}}));
+ $('expenseList').querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',()=>{if(confirm('Delete this expense?')){const deleted=expenses.find(e=>e.id===b.dataset.delete);if(deleted&&bankBalance!==null){bankBalance=Math.round((bankBalance+deleted.amount)*100)/100;localStorage.setItem(BALANCE_KEY,String(bankBalance))}expenses=expenses.filter(e=>e.id!==b.dataset.delete);save();render();toast('Expense deleted; balance adjusted')}}));
 }
 function esc(s){return String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200)}
